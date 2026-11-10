@@ -100,34 +100,100 @@ class ProfileViewModel @Inject constructor(
 
     fun upload() {
         val uri = _uiState.value.selectedPhoto ?: return
-        if (_uiState.value.isBusy) return                 // cegah klik ganda
+
+        // Prevent duplicate uploads
+        if (_uiState.value.isBusy) return
+
+        // Set busy state before starting coroutine
+        _uiState.update {
+            it.copy(
+                isCompressing = true,
+                errorMessage = null
+            )
+        }
 
         uploadJob = viewModelScope.launch {
-            _uiState.update { it.copy(isCompressing = true, errorMessage = null) }
             try {
-                // TODO [T4.4] Lengkapi tiga langkah ini:
-                //   1. val image = imageCompressor.compress(uri)
-                //      -> isCompressing = false, uploadProgress = 0f,
-                //         compressionInfo = compressionSummary(image.originalWidth, ..., image.bytes.size.toLong())
-                //   2. photoStorage.uploadProfilePhoto(image.bytes).collect { event -> when (event) {
-                //        is UploadEvent.Progress -> uploadProgress = event.fraction
-                //        is UploadEvent.Done     -> langkah 3 } }
-                //   3. val now = clock.now()
-                //      profileRepository.updatePhotoUrl(event.downloadUrl, now).getOrThrow()
-                //      savedStateHandle[KEY_SELECTED_PHOTO] = null
-                //      -> photoUrl = event.downloadUrl, photoUpdatedAt = now, selectedPhoto = null,
-                //         uploadProgress = null, message = "Foto profil diperbarui"
-                throw NotImplementedError("Belum diimplementasikan: TODO [T4.4]")
+                // Step 1: compress selected image
+                val image = imageCompressor.compress(uri)
+
+                val summary = compressionSummary(
+                    originalWidth = image.originalWidth,
+                    originalHeight = image.originalHeight,
+                    width = image.width,
+                    height = image.height,
+                    sizeBytes = image.bytes.size.toLong()
+                )
+
+                _uiState.update {
+                    it.copy(
+                        isCompressing = false,
+                        uploadProgress = 0f,
+                        compressionInfo = summary
+                    )
+                }
+
+                // Step 2: upload to Firebase Storage
+                photoStorage.uploadProfilePhoto(
+                    image.bytes
+                ).collect { event ->
+
+                    when (event) {
+                        is UploadEvent.Progress -> {
+                            _uiState.update {
+                                it.copy(
+                                    uploadProgress = event.fraction
+                                )
+                            }
+                        }
+
+                        is UploadEvent.Done -> {
+                            // Step 3: save URL to Firestore
+                            val now = clock.now()
+
+                            profileRepository.updatePhotoUrl(
+                                photoUrl = event.downloadUrl,
+                                updatedAt = now
+                            ).getOrThrow()
+
+                            // Clear selected image
+                            savedStateHandle[KEY_SELECTED_PHOTO] = null
+
+                            // Update UI immediately
+                            _uiState.update {
+                                it.copy(
+                                    photoUrl = event.downloadUrl,
+                                    photoUpdatedAt = now,
+                                    selectedPhoto = null,
+                                    isCompressing = false,
+                                    uploadProgress = null,
+                                    errorMessage = null,
+                                    message = "Foto profil diperbarui"
+                                )
+                            }
+                        }
+                    }
+                }
+
             } catch (e: CancellationException) {
-                _uiState.update { it.copy(isCompressing = false, uploadProgress = null) }
+                // Keep preview when user cancels upload
+                _uiState.update {
+                    it.copy(
+                        isCompressing = false,
+                        uploadProgress = null
+                    )
+                }
+
                 throw e
+
             } catch (e: Throwable) {
-                // Preview tetap ada, sehingga pengguna bisa langsung "Coba lagi"
+                // Keep preview so user can retry
                 _uiState.update {
                     it.copy(
                         isCompressing = false,
                         uploadProgress = null,
-                        errorMessage = e.message ?: "Upload gagal. Coba lagi."
+                        errorMessage = e.message
+                            ?: "Upload gagal. Coba lagi."
                     )
                 }
             }
