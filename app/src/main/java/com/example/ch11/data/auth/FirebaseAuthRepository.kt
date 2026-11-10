@@ -5,6 +5,7 @@ import com.example.ch11.data.model.AuthUser
 import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -39,7 +40,10 @@ class FirebaseAuthRepository @Inject constructor(
         password: String
     ): Result<AuthUser> =
         authenticate {
-            auth.signInWithEmailAndPassword(email, password).await()
+            auth.signInWithEmailAndPassword(
+                email,
+                password
+            ).await()
         }
 
     override suspend fun register(
@@ -47,14 +51,21 @@ class FirebaseAuthRepository @Inject constructor(
         password: String
     ): Result<AuthUser> =
         authenticate {
-            auth.createUserWithEmailAndPassword(email, password).await()
+            auth.createUserWithEmailAndPassword(
+                email,
+                password
+            ).await()
         }
 
-    // Akan dilengkapi pada tahap Google Sign-In.
     override suspend fun signInWithGoogle(
         idToken: String
     ): Result<AuthUser> =
-        notImplemented("T5.2")
+        authenticate {
+            val credential = GoogleAuthProvider
+                .getCredential(idToken, null)
+
+            auth.signInWithCredential(credential).await()
+        }
 
     override fun logout() {
         auth.signOut()
@@ -75,11 +86,6 @@ class FirebaseAuthRepository @Inject constructor(
                 AuthException(authErrorMessage(e), e)
             )
         }
-
-    private fun notImplemented(todo: String): Result<AuthUser> =
-        Result.failure(
-            AuthException("Belum diimplementasikan: TODO [$todo]")
-        )
 }
 
 class AuthException(

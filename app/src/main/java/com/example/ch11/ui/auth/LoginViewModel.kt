@@ -69,9 +69,15 @@ class LoginViewModel @Inject constructor(
     }
 
     // Dilanjutkan pada commit Google Sign-In.
+
     fun onGoogleIdToken(idToken: String) {
-        // Implementasi pada Commit 10.
+        if (_uiState.value.isLoading) return
+
+        authenticate {
+            authRepository.signInWithGoogle(idToken)
+        }
     }
+
 
     fun onGoogleSignInFailed(message: String?) {
         if (message != null) {
