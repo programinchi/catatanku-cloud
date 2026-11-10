@@ -23,7 +23,6 @@ import javax.inject.Singleton
 
 private const val TAG = "FirestoreNoteRepo"
 
-// Struktur data:  users/{uid}/notes/{noteId}
 @Singleton
 class FirestoreNoteRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
@@ -31,75 +30,139 @@ class FirestoreNoteRepository @Inject constructor(
 ) : NoteRepository {
 
     private fun notesOf(uid: String): CollectionReference =
-        firestore.collection("users").document(uid).collection("notes")
+        firestore.collection("users")
+            .document(uid)
+            .collection("notes")
 
-    private fun currentNotes(): CollectionReference =
-        notesOf(authRepository.currentUser?.uid ?: throw NotSignedInException())
+    private fun currentNotes(): CollectionReference {
+        val uid = authRepository.currentUser?.uid
+            ?: throw NotSignedInException()
 
-    // Listener mengikuti status login: ganti akun = ganti collection,
-    // logout = daftar kosong (listener lama dilepas oleh flatMapLatest).
+        return notesOf(uid)
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
-    override fun observeNotes(): Flow<List<Note>> = authRepository.authState
-        .map { it?.uid }
-        .distinctUntilChanged()
-        .flatMapLatest { uid -> if (uid == null) flowOf(emptyList()) else notesSnapshots(uid) }
+    override fun observeNotes(): Flow<List<Note>> =
+        authRepository.authState
+            .map { it?.uid }
+            .distinctUntilChanged()
+            .flatMapLatest { uid ->
+                if (uid == null) {
+                    flowOf(emptyList())
+                } else {
+                    notesSnapshots(uid)
+                }
+            }
 
-    // TODO [T3.2] Ganti flowOf(emptyList()) dengan callbackFlow + snapshot listener:
-    //   callbackFlow {
-    //       val registration = notesOf(uid)
-    //           .orderBy(FIELD_CREATED_AT, Query.Direction.DESCENDING)
-    //           .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
-    //               if (error != null) {
-    //                   close(NoteAccessException(firestoreErrorMessage(error), error))
-    //                   return@addSnapshotListener
-    //               }
-    //               val notes = snapshot?.documents.orEmpty().map { doc ->
-    //                   noteFromMap(doc.id, doc.data.orEmpty(), doc.metadata.hasPendingWrites())
-    //               }
-    //               trySend(sortNotes(notes))
-    //           }
-    //       awaitClose { registration.remove() }       // lepas listener: cegah memory leak
-    //   }
-    // MetadataChanges.INCLUDE: listener juga dipanggil saat server MENGONFIRMASI
-    // penulisan, sehingga tanda "Menunggu sinkron" di kartu bisa hilang.
-    @Suppress("UNUSED_PARAMETER")
-    private fun notesSnapshots(uid: String): Flow<List<Note>> = flowOf(emptyList())
+    private fun notesSnapshots(
+        uid: String
+    ): Flow<List<Note>> = callbackFlow {
 
-    // TODO [T3.3] Baca satu dokumen (get() saat offline otomatis membaca cache):
-    //   val doc = currentNotes().document(id).get().await()
-    //   return if (doc.exists()) noteFromMap(doc.id, doc.data.orEmpty()) else null
-    override suspend fun getNote(id: String): Note? = throw notImplemented("T3.3")
+        val registration = notesOf(uid)
+            .orderBy(
+                FIELD_CREATED_AT,
+                Query.Direction.DESCENDING
+            )
+            .addSnapshotListener(
+                MetadataChanges.INCLUDE
+            ) { snapshot, error ->
 
-    // TODO [T3.3] Tiga fungsi tulis. PENTING: JANGAN di-await().
-    // Task Firestore baru selesai setelah SERVER mengonfirmasi; saat offline itu bisa
-    // berjam-jam dan tombol Simpan akan menggantung. Perubahan sudah langsung masuk
-    // cache lokal dan listener langsung memancarkan daftar baru (latency compensation).
-    //   addNote    : runCatching { val doc = currentNotes().document()   // ID dibuat di perangkat
-    //                              doc.set(note.toFirestoreMap()).logFailure("add"); doc.id }
-    //   updateNote : runCatching { currentNotes().document(note.id).set(note.toFirestoreMap()).logFailure("update") }
-    //   deleteNote : runCatching { currentNotes().document(id).delete().logFailure("delete") }
-    override fun addNote(note: Note): Result<String> = Result.failure(notImplemented("T3.3"))
+                if (error != null) {
+                    close(
+                        NoteAccessException(
+                            firestoreErrorMessage(error),
+                            error
+                        )
+                    )
+                    return@addSnapshotListener
+                }
 
-    override fun updateNote(note: Note): Result<Unit> = Result.failure(notImplemented("T3.3"))
+                val notes = snapshot?.documents
+                    .orEmpty()
+                    .map { document ->
+                        noteFromMap(
+                            id = document.id,
+                            data = document.data.orEmpty(),
+                            hasPendingWrites =
+                                document.metadata.hasPendingWrites()
+                        )
+                    }
 
-    override fun deleteNote(id: String): Result<Unit> = Result.failure(notImplemented("T3.3"))
+                trySend(sortNotes(notes))
+            }
 
-    private fun notImplemented(todo: String) = IllegalStateException("Belum diimplementasikan: TODO [$todo]")
+        awaitClose {
+            registration.remove()
+        }
+    }
 
-    // Sudah disediakan. Penolakan server (mis. Security Rules) baru diketahui belakangan.
-    // Saat itu cache lokal dikembalikan dan listener memancarkan data yang benar.
-    @Suppress("unused")   // dipakai setelah T3.3
+    override suspend fun getNote(id: String): Note? {
+        val document = currentNotes()
+            .document(id)
+            .get()
+            .await()
+
+        return if (document.exists()) {
+            noteFromMap(
+                id = document.id,
+                data = document.data.orEmpty()
+            )
+        } else {
+            null
+        }
+    }
+
+    override fun addNote(note: Note): Result<String> =
+        runCatching {
+            val document = currentNotes().document()
+
+            document.set(note.toFirestoreMap())
+                .logFailure("add")
+
+            document.id
+        }
+
+    override fun updateNote(note: Note): Result<Unit> =
+        runCatching {
+            currentNotes()
+                .document(note.id)
+                .set(note.toFirestoreMap())
+                .logFailure("update")
+        }
+
+    override fun deleteNote(id: String): Result<Unit> =
+        runCatching {
+            currentNotes()
+                .document(id)
+                .delete()
+                .logFailure("delete")
+        }
+
     private fun Task<Void>.logFailure(action: String) {
-        addOnFailureListener { e -> Log.w(TAG, "$action ditolak server: ${e.message}") }
+        addOnFailureListener { error ->
+            Log.w(
+                TAG,
+                "$action ditolak server: ${error.message}"
+            )
+        }
     }
 }
 
-class NoteAccessException(message: String, cause: Throwable? = null) : Exception(message, cause)
+class NoteAccessException(
+    message: String,
+    cause: Throwable? = null
+) : Exception(message, cause)
 
-@Suppress("unused")   // dipakai setelah T3.2
-private fun firestoreErrorMessage(e: FirebaseFirestoreException): String = when (e.code) {
+private fun firestoreErrorMessage(
+    error: FirebaseFirestoreException
+): String = when (error.code) {
+
     FirebaseFirestoreException.Code.PERMISSION_DENIED ->
         "Akses ditolak server. Periksa Security Rules di Firebase Console."
-    FirebaseFirestoreException.Code.UNAVAILABLE -> "Server tidak dapat dihubungi."
-    else -> e.message ?: "Gagal memuat catatan."
+
+    FirebaseFirestoreException.Code.UNAVAILABLE ->
+        "Server tidak dapat dihubungi."
+
+    else ->
+        error.message ?: "Gagal memuat catatan."
 }
