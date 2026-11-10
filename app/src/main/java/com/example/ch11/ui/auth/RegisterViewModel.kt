@@ -1,3 +1,4 @@
+
 package com.example.ch11.ui.auth
 
 import androidx.lifecycle.ViewModel
@@ -26,23 +27,68 @@ class RegisterViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(RegisterUiState())
-    val uiState: StateFlow<RegisterUiState> = _uiState.asStateFlow()
 
-    fun onEmailChange(value: String) =
-        _uiState.update { it.copy(email = value, errorMessage = null) }
+    val uiState: StateFlow<RegisterUiState> =
+        _uiState.asStateFlow()
 
-    fun onPasswordChange(value: String) =
-        _uiState.update { it.copy(password = value, errorMessage = null) }
+    fun onEmailChange(value: String) {
+        _uiState.update {
+            it.copy(email = value, errorMessage = null)
+        }
+    }
 
-    fun onConfirmPasswordChange(value: String) =
-        _uiState.update { it.copy(confirmPassword = value, errorMessage = null) }
+    fun onPasswordChange(value: String) {
+        _uiState.update {
+            it.copy(password = value, errorMessage = null)
+        }
+    }
 
-    // Registrasi berhasil = langsung login, sehingga navigasi juga mengikuti authState
+    fun onConfirmPasswordChange(value: String) {
+        _uiState.update {
+            it.copy(
+                confirmPassword = value,
+                errorMessage = null
+            )
+        }
+    }
+
     fun register() {
-        // TODO [T2.3] Sama seperti LoginViewModel.login():
-        //   1. abaikan jika isLoading;
-        //   2. validateRegistration(email, password, confirmPassword) -> errorMessage + return;
-        //   3. viewModelScope.launch { isLoading = true -> authRepository.register(email.trim(), password)
-        //      -> isLoading = false, errorMessage = result.exceptionOrNull()?.message }
+        val state = _uiState.value
+
+        if (state.isLoading) return
+
+        val validationError = validateRegistration(
+            state.email,
+            state.password,
+            state.confirmPassword
+        )
+
+        if (validationError != null) {
+            _uiState.update {
+                it.copy(errorMessage = validationError)
+            }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isLoading = true,
+                    errorMessage = null
+                )
+            }
+
+            val result = authRepository.register(
+                state.email.trim(),
+                state.password
+            )
+
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    errorMessage = result.exceptionOrNull()?.message
+                )
+            }
+        }
     }
 }
