@@ -79,10 +79,17 @@ class ProfileViewModel @Inject constructor(
     // Dari Photo Picker maupun kamera: cukup tampilkan preview dulu.
     // Upload baru terjadi setelah pengguna menekan "Unggah".
     fun onPhotoSelected(uri: String) {
-        // TODO [T2.2] Tampilkan preview (BELUM upload):
-        //   1. Abaikan jika _uiState.value.isBusy (sedang kompres/upload).
-        //   2. savedStateHandle[KEY_SELECTED_PHOTO] = uri   -> tahan process death
-        //   3. _uiState.update { it.copy(selectedPhoto = uri, compressionInfo = null, errorMessage = null) }
+        if (_uiState.value.isBusy) return
+
+        savedStateHandle[KEY_SELECTED_PHOTO] = uri
+
+        _uiState.update {
+            it.copy(
+                selectedPhoto = uri,
+                compressionInfo = null,
+                errorMessage = null
+            )
+        }
     }
 
     fun cancelSelection() {
