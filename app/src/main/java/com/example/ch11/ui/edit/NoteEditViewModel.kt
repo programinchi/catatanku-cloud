@@ -87,10 +87,21 @@ class NoteEditViewModel @Inject constructor(
     // online maupun offline. Sinkron ke server terjadi di latar belakang.
     fun save() {
         val current = _uiState.value
+
         if (current.title.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "Judul tidak boleh kosong") }
+            _uiState.update {
+                it.copy(errorMessage = "Judul tidak boleh kosong")
+            }
             return
         }
+
+        if (current.title.trim().length > 200) {
+            _uiState.update {
+                it.copy(errorMessage = "Judul maksimal 200 karakter.")
+            }
+            return
+        }
+
         if (!isNewNote && original == null) return       // belum/gagal dimuat
 
         val now = clock.now()
