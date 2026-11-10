@@ -1,3 +1,4 @@
+
 package com.example.ch11.ui.auth
 
 import androidx.lifecycle.ViewModel
@@ -20,47 +21,84 @@ data class LoginUiState(
     val errorMessage: String? = null
 )
 
-// Tidak ada isSuccess: setelah login berhasil, authState berubah dan
-// CatatanKuApp yang memindahkan layar (navigasi = fungsi dari state).
 @HiltViewModel
 class LoginViewModel @Inject constructor(
     private val authRepository: AuthRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LoginUiState())
-    val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
 
-    fun onEmailChange(value: String) =
-        _uiState.update { it.copy(email = value, errorMessage = null) }
+    val uiState: StateFlow<LoginUiState> =
+        _uiState.asStateFlow()
 
-    fun onPasswordChange(value: String) =
-        _uiState.update { it.copy(password = value, errorMessage = null) }
+    fun onEmailChange(value: String) {
+        _uiState.update {
+            it.copy(email = value, errorMessage = null)
+        }
+    }
+
+    fun onPasswordChange(value: String) {
+        _uiState.update {
+            it.copy(password = value, errorMessage = null)
+        }
+    }
 
     fun login() {
-        // TODO [T2.2] Lengkapi login:
-        //   1. Ambil state = _uiState.value; abaikan jika state.isLoading.
-        //   2. validateLogin(state.email, state.password) -> jika ada pesan,
-        //      simpan ke errorMessage lalu return (JANGAN panggil server).
-        //   3. authenticate { authRepository.login(state.email.trim(), state.password) }
-    }
+        val state = _uiState.value
 
-    // Tugas 5: token didapat Route dari Credential Manager (butuh Activity)
-    fun onGoogleIdToken(idToken: String) {
-        // TODO [T5.3] authenticate { authRepository.signInWithGoogle(idToken) }
-    }
+        if (state.isLoading) return
 
-    // message null = pengguna menutup dialog akun Google; bukan error
-    fun onGoogleSignInFailed(message: String?) {
-        if (message != null) _uiState.update { it.copy(errorMessage = message) }
-    }
+        val validationError = validateLogin(
+            state.email,
+            state.password
+        )
 
-    // Sudah disediakan: isLoading -> panggil repository -> isLoading false + pesan error
-    private fun authenticate(block: suspend () -> Result<AuthUser>) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-            val result = block()
+        if (validationError != null) {
             _uiState.update {
-                it.copy(isLoading = false, errorMessage = result.exceptionOrNull()?.message)
+                it.copy(errorMessage = validationError)
+            }
+            return
+        }
+
+        authenticate {
+            authRepository.login(
+                state.email.trim(),
+                state.password
+            )
+        }
+    }
+
+    // Dilanjutkan pada commit Google Sign-In.
+    fun onGoogleIdToken(idToken: String) {
+        // Implementasi pada Commit 10.
+    }
+
+    fun onGoogleSignInFailed(message: String?) {
+        if (message != null) {
+            _uiState.update {
+                it.copy(errorMessage = message)
+            }
+        }
+    }
+
+    private fun authenticate(
+        block: suspend () -> Result<AuthUser>
+    ) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isLoading = true,
+                    errorMessage = null
+                )
+            }
+
+            val result = block()
+
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    errorMessage = result.exceptionOrNull()?.message
+                )
             }
         }
     }
