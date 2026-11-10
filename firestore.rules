@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // TODO [T4.1] Rules ini BELUM AMAN. Setiap pengguna yang sudah login dapat
+    // membaca dan menghapus catatan milik pengguna LAIN. Buat fungsi:
+    //   function isOwner(userId) {
+    //     return request.auth != null && request.auth.uid == userId;
+    //   }
+    // lalu pakai di allow. Ingat: autentikasi (sudah login) BUKAN otorisasi (pemilik data).
+
+    // TODO [T4.2] (Tantangan) Validasi bentuk data saat create/update:
+    //   function isValidNote() -> keenam field ada (keys().hasAll([...])),
+    //   title string 1..200 karakter, content string, createdAt & updatedAt int,
+    //   isPinned bool, tags list.
+    //   allow read, delete    : if isOwner(userId);
+    //   allow create, update  : if isOwner(userId) && isValidNote();
+
+    match /users/{userId}/notes/{noteId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
